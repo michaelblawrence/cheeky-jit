@@ -51,7 +51,7 @@ impl<'a> Parser<'a> {
                 ParserState::BlockStart => Err(format!("expected block label on line {i}"))?,
                 ParserState::BlockInstructions(block) => {
                     self.parse_block_instructions(line, &block, i)?;
-                    ParserState::BlockInstructions(block.clone())
+                    ParserState::BlockInstructions(block)
                 }
             }
         }
