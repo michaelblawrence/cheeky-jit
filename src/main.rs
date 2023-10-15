@@ -1,10 +1,14 @@
-use crate::vm::BlockTarget;
+use std::fmt::Display;
+
+use parser::Parser;
+use vm::BlockTarget;
 
 mod jit;
+mod parser;
 mod vm;
 
 fn main() {
-    let mut vm = vm::VM::new(8, 1);
+    let mut vm = vm::VM::new(8, 4);
     let program_iters = 100_000_000;
 
     match std::env::args().skip(1).next().as_deref() {
@@ -12,8 +16,14 @@ fn main() {
             let program = sample_loop_program(program_iters);
             program.dump();
 
-            run_interpreted(&program, &mut vm).expect("failed to run program");
+            run_interpreted(&program, &mut vm)
+                .unwrap_or_else(|_| exit_with_error_msg("Failed to run program", ""));
+
             vm.dump();
+            assert_eq!(
+                vm.locals[0].0, program_iters,
+                "program should set local[0] to 0"
+            );
         }
         Some("--nop") => {
             let jit = jit::Jit::dummy();
@@ -21,6 +31,28 @@ fn main() {
 
             let executable = jit.into_exec();
             executable.run(&mut vm);
+        }
+        Some("-i") => {
+            let path = std::env::args()
+                .skip(2)
+                .next()
+                .unwrap_or_else(|| exit_with_usage_help());
+
+            let code = std::fs::read_to_string(&path).unwrap_or_else(|err| {
+                exit_with_error_msg(&format!("Failed to read provided file: {path}"), err)
+            });
+            let program = Parser::new(&code).parse().unwrap_or_else(|err| {
+                exit_with_error_msg(&format!("Failed to compile program: {path}"), err)
+            });
+
+            program.dump();
+
+            let jit = jit::Jit::compile(&program);
+            jit.dump();
+
+            let executable = jit.into_exec();
+            executable.run(&mut vm);
+            vm.dump();
         }
         None => {
             let program = sample_loop_program(program_iters);
@@ -32,10 +64,14 @@ fn main() {
             let executable = jit.into_exec();
             executable.run(&mut vm);
             vm.dump();
+
+            assert_eq!(
+                vm.locals[0].0, program_iters,
+                "program should set local[0] to 0"
+            );
         }
         Some(_) => {
-            eprintln!("Usage: cheekyjit [--no-jit|--nop]");
-            std::process::exit(1);
+            exit_with_usage_help();
         }
     }
 }
@@ -100,83 +136,31 @@ fn run_interpreted(program: &vm::Program, vm: &mut vm::VM) -> Result<(), ()> {
 }
 
 fn sample_loop_program(iters: u64) -> vm::Program {
-    let mut program = vm::Program::default();
-    let block1 = program.make_block();
-    let block2 = program.make_block();
-    let block3 = program.make_block();
-    let block4 = program.make_block();
-    let block5 = program.make_block();
-    let block6 = program.make_block();
+    let sample_looper_code = format!(
+        r#"
+ENTRY:
+  LOAD_IMM 0
+  STORE_REG r1
+  JUMP #LOOP0
+LOOP0:
+  LOAD_IMM {iters}
+  LESS_THAN r1
+  JUMP_EITHER #LOOP0_BODY #LOOP0_END
+LOOP0_BODY:
+  LOAD_REG r1
+  INCR
+  STORE_REG r1
+  JUMP #LOOP0
+LOOP0_END:
+  LOAD_REG r1
+  SET_LOCAL .0
+  RET
+"#
+    );
 
-    block1.append(vm::Instruction::Store {
-        reg: vm::VMRegister(5),
-    });
-    block1.append(vm::Instruction::LoadImmediate {
-        value: vm::Value(0),
-    });
-    block1.append(vm::Instruction::SetLocal {
-        local: vm::VMLocal(0),
-    });
-    block1.append(vm::Instruction::Load {
-        reg: vm::VMRegister(5),
-    });
-    block1.append(vm::Instruction::LoadImmediate {
-        value: vm::Value(0),
-    });
-    block1.append(vm::Instruction::Store {
-        reg: vm::VMRegister(6),
-    });
-    block1.append(vm::Instruction::Jump {
-        target: block4.clone(),
-    });
-
-    block2.append(vm::Instruction::Exit);
-
-    block3.append(vm::Instruction::LoadImmediate {
-        value: vm::Value(0),
-    });
-    block3.append(vm::Instruction::Jump {
-        target: block5.clone(),
-    });
-
-    block4.append(vm::Instruction::GetLocal {
-        local: vm::VMLocal(0),
-    });
-    block4.append(vm::Instruction::Store {
-        reg: vm::VMRegister(7),
-    });
-    block4.append(vm::Instruction::LoadImmediate {
-        value: vm::Value(iters),
-    });
-    block4.append(vm::Instruction::LessThan {
-        lhs: vm::VMRegister(7),
-    });
-    block4.append(vm::Instruction::JumpConditional {
-        true_target: block3.clone(),
-        false_target: block6.clone(),
-    });
-
-    block5.append(vm::Instruction::Store {
-        reg: vm::VMRegister(6),
-    });
-    block5.append(vm::Instruction::GetLocal {
-        local: vm::VMLocal(0),
-    });
-    block5.append(vm::Instruction::Increment);
-    block5.append(vm::Instruction::SetLocal {
-        local: vm::VMLocal(0),
-    });
-    block5.append(vm::Instruction::Jump {
-        target: block4.clone(),
-    });
-
-    block6.append(vm::Instruction::Load {
-        reg: vm::VMRegister(6),
-    });
-    block6.append(vm::Instruction::Jump {
-        target: block2.clone(),
-    });
-    program
+    Parser::new(&sample_looper_code)
+        .parse()
+        .expect("failed to parse sample program;")
 }
 
 pub fn env_var_flag_is_set(key: &str) -> bool {
@@ -184,4 +168,15 @@ pub fn env_var_flag_is_set(key: &str) -> bool {
         .ok()
         .filter(|x| matches!(x.trim().parse(), Ok(1_usize)))
         .is_some()
+}
+
+fn exit_with_usage_help() -> ! {
+    eprintln!("Usage: cheekyjit [--no-jit|--nop|-i <bytecode_fpath>]");
+    std::process::exit(1)
+}
+
+fn exit_with_error_msg(msg: &str, err: impl Display) -> ! {
+    eprintln!("ERROR: {msg}");
+    eprintln!("    {err}");
+    std::process::exit(1)
 }

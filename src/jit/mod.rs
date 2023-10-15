@@ -42,7 +42,6 @@ impl Jit {
         for block in &program.blocks {
             let block_offset = block.borrow().offset;
             for jump in block.borrow().jumps_to_here.iter().copied() {
-                dbg!((jump, block_offset));
                 let byte_offset = block_offset as i16 - jump as i16;
                 let offset = byte_offset / 4;
                 let jump_instr = &jit.assembler[jump + 0..jump + 4];

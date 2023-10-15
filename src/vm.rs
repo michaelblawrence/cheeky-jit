@@ -47,7 +47,7 @@ impl Program {
         let block = BasicBlock::default();
         let block = Rc::new(RefCell::new(block));
         self.blocks.push(block.clone());
-        BlockTarget(block)
+        BlockTarget(block, Some(self.blocks.len()))
     }
 
     pub fn dump(&self) {
@@ -60,17 +60,20 @@ impl Program {
 }
 
 #[derive(Clone)]
-pub struct BlockTarget(Rc<RefCell<BasicBlock>>);
+pub struct BlockTarget(Rc<RefCell<BasicBlock>>, Option<usize>);
 
 impl std::fmt::Debug for BlockTarget {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_tuple("BlockTarget").finish()
+        match &self.1 {
+            Some(id) => f.debug_tuple("BlockTarget").field(&id).finish(),
+            None => f.debug_tuple("BlockTarget").finish(),
+        }
     }
 }
 
 impl BlockTarget {
     pub fn new(target: Rc<RefCell<BasicBlock>>) -> Self {
-        Self(target)
+        Self(target, None)
     }
     pub fn append(&self, instruction: Instruction) {
         let instruction = Rc::new(RefCell::new(instruction));
