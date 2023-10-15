@@ -122,6 +122,7 @@ impl<'a> Parser<'a> {
                 })?
             }
             None if line == "INCR" => instruction::add_unary(b, vm::Instruction::Increment),
+            None if line == "BREAK" => instruction::add_unary(b, vm::Instruction::Breakpoint),
             None if line == "RET" => instruction::add_unary(b, vm::Instruction::Exit),
 
             Some((instr, _)) => Err(format!("unexpected instruction `{instr}` on line {i}"))?,

@@ -29,6 +29,7 @@ impl Jit {
                     Instruction::GetLocal { local } => jit.compile_get_local(local),
                     Instruction::Increment => jit.compile_increment(),
                     Instruction::LessThan { lhs } => jit.compile_less_than(lhs),
+                    Instruction::Breakpoint => jit.compile_breakpoint(),
                     Instruction::Exit => jit.compile_exit(),
                     Instruction::Jump { target } => jit.compile_jump(&target),
                     Instruction::JumpConditional {
@@ -204,6 +205,10 @@ impl Jit {
         self.assembler.load_vm_register(Reg::GPR0, VMRegister(0));
         self.assembler
             .jump_conditional(Reg::GPR0, true_target, false_target);
+    }
+
+    fn compile_breakpoint(&mut self) {
+        self.assembler.brk();
     }
 
     fn compile_exit(&mut self) {

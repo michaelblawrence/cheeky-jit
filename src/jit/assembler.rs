@@ -92,13 +92,16 @@ impl Assembler {
         self.jump(true_target);
     }
 
+    pub fn brk(&mut self) {
+        self.writer().emit_brk(0);
+    }
+    
     pub fn ret(&mut self) {
         // Return from the function
         self.writer().emit_ret();
     }
 
     pub fn no_op(&mut self) {
-        // Return from the function
         self.writer().emit_nop();
     }
 

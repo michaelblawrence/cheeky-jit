@@ -138,6 +138,7 @@ pub enum Instruction {
     LessThan {
         lhs: VMRegister,
     },
+    Breakpoint,
     Exit,
     Jump {
         target: BlockTarget,
