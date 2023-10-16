@@ -10,7 +10,7 @@ EXIT:
 LOOP_CHECK:
   GET_LOCAL .0
   STORE_REG r7
-  LOAD_IMM 10000                     // this is the number of counter iterations
+  LOAD_INT32 10000                     // this is the number of counter iterations
   LESS_THAN r7
   JUMP_EITHER #LOOP_BODY #LOOP_END   // if r7 < 1000 then jump to LOOP_BODY otherwise LOOP_END
 
@@ -23,6 +23,6 @@ LOOP_BODY:
 
 // this block is run once we have reached the max iteration count
 LOOP_END:
-  LOAD_IMM 1
+  LOAD_INT32 1
   STORE_REG r0                       // this sets r0 to 1 once we have finished looping
   JUMP #EXIT

@@ -78,7 +78,7 @@ impl<'a> Parser<'a> {
         i: usize,
     ) -> Result<(), String> {
         Ok(match line.split_once(" ") {
-            Some(("LOAD_IMM", x)) => instruction::add_single_operand(b, x, i, |x: u64| {
+            Some(("LOAD_INT32", x)) => instruction::add_single_operand(b, x, i, |x: u64| {
                 Ok(vm::Instruction::LoadImmediate {
                     value: vm::Value(x),
                 })

@@ -140,11 +140,11 @@ fn sample_loop_program(iters: u64) -> vm::Program {
     let sample_looper_code = format!(
         r#"
 ENTRY:
-  LOAD_IMM 0
+  LOAD_INT32 0
   STORE_REG r1
   JUMP #LOOP0
 LOOP0:
-  LOAD_IMM {iters}
+  LOAD_INT32 {iters}
   LESS_THAN r1
   JUMP_EITHER #LOOP0_BODY #LOOP0_END
 LOOP0_BODY:
