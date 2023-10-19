@@ -1,14 +1,21 @@
 use crate::{vm::BlockTarget, vm::VMLocal, vm::VMRegister};
 
 #[repr(u8)]
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Reg {
     GPR0 = 4, // x4
     GPR1 = 5, // x5
 
-    _VmStructBase = 0,     // x0
+    VmStructBase = 0,     // x0
     RegisterArrayBase = 1, // x1
     LocalsArrayBase = 2,   // x2
+
+    RET = 30,
+    SP = 31,
+}
+
+pub enum Func {
+    FnSingleInt64WithReturnInt64(fn(u64) -> u64, u64),
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -92,10 +99,41 @@ impl Assembler {
         self.jump(true_target);
     }
 
+    pub fn call_into_rust(&mut self, dst: Reg, func: Func) {
+        match func {
+            Func::FnSingleInt64WithReturnInt64(func, arg0) => {
+                let addr = func as *const () as u64;
+                self.writer().emit_push(Reg::VmStructBase);
+                self.writer().emit_push(Reg::RegisterArrayBase);
+                self.writer().emit_push(Reg::LocalsArrayBase);
+                self.writer().emit_push(Reg::GPR0);
+                self.writer().emit_push(Reg::GPR1);
+                self.writer().emit_push(Reg::RET);
+
+                self.writer().emit_mov_imm(Reg::VmStructBase, arg0);
+                self.writer().emit_mov_imm(Reg::GPR1, addr);
+                self.writer().emit_branch_with_link(Reg::GPR1);
+                self.writer().emit_mov_reg(Reg::GPR0, Reg::VmStructBase);
+
+                self.writer().emit_pop(Some(Reg::RET));
+                self.writer().emit_pop(Some(Reg::GPR1));
+                if dst != Reg::GPR0 {
+                    self.writer().emit_mov_reg(dst, Reg::GPR0);
+                    self.writer().emit_pop(Some(Reg::GPR0));
+                } else {
+                    self.writer().emit_pop(None);
+                }
+                self.writer().emit_pop(Some(Reg::LocalsArrayBase));
+                self.writer().emit_pop(Some(Reg::RegisterArrayBase));
+                self.writer().emit_pop(Some(Reg::VmStructBase));
+            }
+        }
+    }
+
     pub fn brk(&mut self) {
         self.writer().emit_brk(0);
     }
-    
+
     pub fn ret(&mut self) {
         // Return from the function
         self.writer().emit_ret();
@@ -161,11 +199,28 @@ struct Arm64Writer<'a>(&'a mut Vec<u8>);
 
 impl<'a> Arm64Writer<'a> {
     pub fn emit_mov_reg(&mut self, dst: Reg, src: Reg) {
-        self.emit8((dst as u8 & 0b11111) + 0b1110000);
+        // 10101010000 Rm00000011111
         // MOV (register)
-        self.emit8(0b00000011);
-        self.emit8(src as u8 & 0b11111);
-        self.emit8(0b10101010);
+        self.emit32_gen(|idx| match idx {
+            0 => Some(BitIndex {
+                value: 0b10101010000,
+                bits: 11,
+            }),
+            1 => Some(BitIndex {
+                value: src as usize,
+                bits: 5,
+            }),
+            2 => Some(BitIndex {
+                value: 0b00000011111,
+                bits: 11,
+            }),
+            3 => Some(BitIndex {
+                value: dst as usize,
+                bits: 5,
+            }),
+            _ => None,
+        })
+        .unwrap();
     }
 
     pub fn emit_mov_imm(&mut self, dst: Reg, imm: u64) {
@@ -287,17 +342,95 @@ impl<'a> Arm64Writer<'a> {
         .unwrap();
     }
 
-    pub fn emit_branch(&mut self, addr: usize) {
+    pub fn emit_add(&mut self, dst: Reg, src: Reg, value: u16) {
+        // ADD (immediate)
+        self.emit32_gen(|idx| match idx {
+            0 => Some(BitIndex {
+                value: 0b1001000100,
+                bits: 10,
+            }),
+            1 => Some(BitIndex {
+                value: value as usize,
+                bits: 12,
+            }),
+            2 => Some(BitIndex {
+                value: src as usize,
+                bits: 5,
+            }),
+            3 => Some(BitIndex {
+                value: dst as usize,
+                bits: 5,
+            }),
+            _ => None,
+        })
+        .unwrap();
+    }
+
+    pub fn emit_sub(&mut self, dst: Reg, src: Reg, value: u16) {
+        // SUB (immediate)
+        self.emit32_gen(|idx| match idx {
+            0 => Some(BitIndex {
+                value: 0b1101000100,
+                bits: 10,
+            }),
+            1 => Some(BitIndex {
+                value: value as usize,
+                bits: 12,
+            }),
+            2 => Some(BitIndex {
+                value: src as usize,
+                bits: 5,
+            }),
+            3 => Some(BitIndex {
+                value: dst as usize,
+                bits: 5,
+            }),
+            _ => None,
+        })
+        .unwrap();
+    }
+
+    pub fn emit_push(&mut self, src: Reg) {
+        self.emit_sub(Reg::SP, Reg::SP, 64); // 64-bit
+        self.emit_str(Reg::SP, 1, src);
+    }
+
+    pub fn emit_pop(&mut self, dst: Option<Reg>) {
+        if let Some(dst) = dst {
+            self.emit_ldr(dst, Reg::SP, 1);
+        }
+        self.emit_add(Reg::SP, Reg::SP, 64); // 64-bit
+    }
+
+    pub fn emit_branch(&mut self, addr_offset: usize) {
         // B (Branch)
+        // Branch to target (26-bit offset)
         self.emit32_gen(|idx| match idx {
             0 => Some(BitIndex {
                 value: 0b000101,
                 bits: 6,
             }),
             1 => Some(BitIndex {
-                value: addr,
+                value: addr_offset,
                 bits: 26,
             }),
+            _ => None,
+        })
+        .unwrap();
+    }
+
+    pub fn emit_branch_with_link(&mut self, target: Reg) {
+        // BLR (Branch with Link to Register)
+        self.emit32_gen(|idx| match idx {
+            0 => Some(BitIndex {
+                value: 0b1101011000111111000000,
+                bits: 22,
+            }),
+            1 => Some(BitIndex {
+                value: target as usize,
+                bits: 5,
+            }),
+            2 => Some(BitIndex { value: 0, bits: 5 }),
             _ => None,
         })
         .unwrap();
@@ -436,10 +569,6 @@ impl<'a> Arm64Writer<'a> {
     pub fn emit_nop(&mut self) {
         // NOP
         self.emit32(0b1101_0101_0000_0011_0010_0000_0001_1111);
-    }
-
-    fn emit8(&mut self, value: u8) {
-        self.0.push(value);
     }
 
     fn emit32(&mut self, value: u32) {
