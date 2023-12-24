@@ -121,6 +121,11 @@ impl<'a> Parser<'a> {
                     })
                 })?
             }
+            Some(("LOAD_RAND", x)) => instruction::add_single_operand(b, x, i, |x: u64| {
+                Ok(vm::Instruction::LoadRandom {
+                    max: vm::Value(x),
+                })
+            })?,
             None if line == "INCR" => instruction::add_unary(b, vm::Instruction::Increment),
             None if line == "BREAK" => instruction::add_unary(b, vm::Instruction::Breakpoint),
             None if line == "RET" => instruction::add_unary(b, vm::Instruction::Exit),

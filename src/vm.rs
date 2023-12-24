@@ -147,4 +147,78 @@ pub enum Instruction {
         true_target: BlockTarget,
         false_target: BlockTarget,
     },
+    LoadRandom {
+        max: Value,
+    },
+}
+
+pub mod rand {
+    use std::{
+        cell::{OnceCell, RefCell},
+        sync::{Mutex, OnceLock},
+    };
+
+    const MODULUS: u64 = 2_147_483_647;
+    const MULTIPLIER: u64 = 16_807;
+
+    pub(crate) const F64_MULTIPLIER: f64 = 1.0 / 2_147_483_646 as f64;
+
+    pub static INSTANCE: OnceLock<Mutex<ParkMiller>> = OnceLock::new();
+    thread_local! {
+        pub static FOO: OnceCell<ParkMiller> = const { OnceCell::new() };
+    }
+
+    pub struct ParkMiller {
+        state: u64,
+    }
+
+    impl ParkMiller {
+        pub const fn new(seed: u64) -> Self {
+            Self {
+                state: seed % MODULUS,
+            }
+        }
+
+        pub fn thread_next(max_value: u64) -> u64 {
+            let mut b: OnceCell<ParkMiller> = OnceCell::new();
+            b.get_or_init(|| ParkMiller::new(123));
+            match b.get_mut() {
+                Some(b) => b.rand(),
+                None => {
+                    b.get_or_init(|| ParkMiller::new(123));
+                    b.get_mut().unwrap().rand()
+                }
+            };
+            // b.
+            // let a = OnceCell::new(ParkMiller::new(123)):
+            let r = FOO.with(|foo| {
+                foo.get_or_init(|| ParkMiller::new(123));
+                foo.get_mut().unwrap().rand()
+            }) as f64
+                * F64_MULTIPLIER;
+            let instance = INSTANCE.get_or_init(|| {
+                use std::time::{SystemTime, UNIX_EPOCH};
+                let since_epoch = SystemTime::now().duration_since(UNIX_EPOCH);
+                let modulo = since_epoch.unwrap().as_millis() % u64::MAX as u128;
+                Mutex::new(ParkMiller::new(modulo as u64))
+            });
+            let r = instance.lock().unwrap().rand() as f64 * F64_MULTIPLIER;
+            (max_value as f64 * r) as u64
+        }
+        pub fn next(max_value: u64) -> u64 {
+            let instance = INSTANCE.get_or_init(|| {
+                use std::time::{SystemTime, UNIX_EPOCH};
+                let since_epoch = SystemTime::now().duration_since(UNIX_EPOCH);
+                let modulo = since_epoch.unwrap().as_millis() % u64::MAX as u128;
+                Mutex::new(ParkMiller::new(modulo as u64))
+            });
+            let r = instance.lock().unwrap().rand() as f64 * F64_MULTIPLIER;
+            (max_value as f64 * r) as u64
+        }
+
+        pub fn rand(&mut self) -> u64 {
+            self.state = self.state.wrapping_mul(MULTIPLIER) % MODULUS;
+            self.state
+        }
+    }
 }

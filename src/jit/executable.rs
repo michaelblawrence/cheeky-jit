@@ -40,6 +40,7 @@ impl Executable {
         );
         // Safety: the size of this buffer is greater than the jit.assembler.len()
         unsafe { jit.copy_into(executable_memory.data()) }
+        jit.dump_exec_addr(executable_memory.data());
 
         eprintln!("re-enabling write protections on thread...");
         // Safety: this is safe to call here, no return/error value to handle

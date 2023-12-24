@@ -1,6 +1,6 @@
 use crate::{env_var_flag_is_set, vm::Instruction, vm::Program, vm::VMRegister};
 
-use self::assembler::Reg;
+use self::assembler::{Func, Reg};
 
 mod assembler;
 mod executable;
@@ -8,6 +8,7 @@ mod executable;
 #[derive(Default)]
 pub struct Jit {
     assembler: assembler::Assembler,
+    block_offsets: Vec<usize>,
 }
 
 impl Jit {
@@ -17,6 +18,7 @@ impl Jit {
 
         for block in program.blocks.iter() {
             block.borrow_mut().offset = assembler.len();
+            jit.block_offsets.push(assembler.len());
 
             for instruction in &block.borrow().instructions {
                 let instruction = instruction.borrow().clone();
@@ -52,6 +54,16 @@ impl Jit {
                         assembler.load_vm_register(Reg::GPR1, VMRegister(0));
 
                         assembler.less_than(Reg::GPR0, Reg::GPR1);
+                        assembler.store_vm_register(VMRegister(0), Reg::GPR0);
+                    }
+                    Instruction::LoadRandom { max } => {
+                        assembler.call_into_rust(
+                            Reg::GPR0,
+                            Func::FnSingleInt64WithReturnInt64(
+                                crate::vm::rand::ParkMiller::next,
+                                max.0,
+                            ),
+                        );
                         assembler.store_vm_register(VMRegister(0), Reg::GPR0);
                     }
                     Instruction::Breakpoint => {
@@ -161,6 +173,15 @@ impl Jit {
         eprintln!("");
 
         self.bytecode_to_file();
+    }
+
+    pub fn dump_exec_addr(&self, exec_start: *const u8) {
+        eprintln!("block addresses: ");
+        for (i, block_offset) in self.block_offsets.iter().enumerate() {
+            let addr = exec_start as usize + block_offset;
+            eprintln!("Block #{index} => 0x{addr:016x?}", index = i + 1);
+        }
+        eprintln!("");
     }
 
     pub fn into_exec(self) -> executable::Executable {

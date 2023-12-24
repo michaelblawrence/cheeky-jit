@@ -93,6 +93,9 @@ fn run_interpreted(program: &vm::Program, vm: &mut vm::VM) -> Result<(), ()> {
             vm::Instruction::LessThan { lhs } => vm.accum_reg_mut().0 = less_than(vm, lhs)?,
             vm::Instruction::Breakpoint => unsafe { std::arch::asm!("brk 0") },
             vm::Instruction::Exit => return Ok(()),
+            vm::Instruction::LoadRandom { max } => {
+                vm.accum_reg_mut().0 = vm::rand::ParkMiller::next(max.0)
+            }
             vm::Instruction::Jump { target } => {
                 jump(&mut current_block, &mut instruction_index, target)
             }
